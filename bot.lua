@@ -29,6 +29,9 @@ local vote_messages = {} -- ID сообщений голосований (для
 local easteries_shuffled = {} -- ID перемешанных заведений
 local votes = {} -- голоса
 local default = "Столовка по-умолчанию"
+local top = {}
+local top_name = ""
+local voices = 0
 
 -- загружает заведения из БД
 function load_easteries()
@@ -44,6 +47,7 @@ function load_easteries()
 			address     = row.address,
 			url         = row.url,
 			phone       = row.phone,
+			emoji       = row.emoji,
 		}
 		row = cursor:fetch ( row, "a" )
 	end
@@ -99,7 +103,6 @@ end
 -- сохраняет перемешанные заведения в БД
 function save_shuffled()
 	dbc:execute( "TRUNCATE TABLE shuffled" )
-print(inspect(easteries_shuffled))
 	for _, id in pairs( easteries_shuffled ) do
 		dbc:execute( "INSERT INTO shuffled (eastery_id)  VALUES (" .. tostring( id ) .. ");" )
 	end
@@ -122,6 +125,24 @@ function save_votes()
 	for who, what in pairs( votes ) do
 		dbc:execute ( "INSERT INTO votes (username, eastery)  VALUES ('" .. tostring( who ) .. "', '" .. tostring( what ) .. "');" )
 	end
+
+	-- пересчёт топчиков
+	top = {}
+	voices = 0
+	for who, what in pairs( votes ) do
+		if top[ what ] == nil then
+			top[ what ] = 0
+		end
+		top[ what ] = top[ what ] + 1
+		voices = voices + 1
+	end
+	local n = 1
+	for k, v in tablex.sortv( top, function(x,y) return (x > y) end ) do
+		if n == 1 then
+			top_name = k
+		end
+		n = n + 1
+	end
 end
 
 
@@ -133,6 +154,7 @@ load_votes()
 function generatePoolButtons()
 	local variants = {}
 	local all_variants = {}
+	local buttonText
 	local i = 1
 	-- @TODO - переписать по-нормальному генерацию кнопок
 	for n = 0, num / 2 do
@@ -145,13 +167,23 @@ function generatePoolButtons()
 						cnt = cnt + 1
 					end
 				end
+				if top_name == easteries [ easteries_shuffled[ i ] ].name then
+					buttonText = easteries [ easteries_shuffled[ i ] ].emoji .. " " .. easteries [ easteries_shuffled[ i ] ].name .. " [ " .. tostring( cnt ) .. " ]"
+				else
+					buttonText = easteries [ easteries_shuffled[ i ] ].name .. " [ " .. tostring( cnt ) .. " ]"
+				end
 				table.insert( variants, {
-					text = easteries [ easteries_shuffled[ i ] ].name .. " [ " .. tostring( cnt ) .. " ]",
+					text = buttonText,
 					callback_data = 'vote:' .. tostring( easteries_shuffled[ i ] ),
 				})
 			else
+				if top_name == "Не пойду" then
+					buttonText = "😫 Не пойду"
+				else
+					buttonText = "Не пойду"
+				end
 				table.insert( variants, {
-					text = 'Не пойду',
+					text = buttonText,
 					callback_data = 'vote:0',
 				})
 			end
@@ -191,31 +223,20 @@ extension.onTextReceive = function (msg)
 	-- /vote buttons
 	elseif ( msg.text == "/vote" ) then
 		local answer = "Голосуем!\n\n"
-		local result = bot.sendMessage( msg.chat.id, answer, nil, nil, nil, nil, generatePoolButtons() )
+		local result = bot.sendMessage( msg.chat.id, answer, "HTML", nil, nil, nil, generatePoolButtons() )
 		if result.result and result.result.message_id then
 			table.insert( vote_messages, result.result.message_id )
 			dbc:execute ( "INSERT INTO vote_messages (message_id)  VALUES (" .. tostring( result.result.message_id ) .. ");" )
 		end
 
 	-- /vote results
-	elseif ( msg.text == "/results" ) then
-		local top = {}
-		local voices = 0
-
-		for who, what in pairs( votes ) do
-			if top[ what ] == nil then
-				top[ what ] = 0
-			end
-			top[ what ] = top[ what ] + 1
-			voices = voices + 1
-		end
-
+	elseif ( msg.text == "/results" ) then	
 		local answer = "Результаты:\n\n"
 
 		if voices > 0 then
 			answer = answer .. "Всего проголосовало: " .. tostring( voices ) .. "\n\n"
 			local n = 1
-			for k, v in tablex.sortv( top, function(x,y) return (x > y) end )  do
+			for k, v in tablex.sortv( top, function(x,y) return (x > y) end ) do
 				answer = answer .. tostring( n ) .. ') ' ..  tostring( k ) .. ': ' .. tostring( v ) .. "\n"
 				n = n + 1
 			end
@@ -225,25 +246,50 @@ extension.onTextReceive = function (msg)
 
 		bot.sendMessage( msg.chat.id, answer )
 
+	-- /info:ID
+	elseif ( msg.text:match('^/info:.-$') ) then
+		local id = tonumber( msg.text:match('^/info:(.-)$') )
+		local answer
+
+		if easteries[ id ] then
+			answer = "Заведение с ID: " .. tostring( id ) .. "\n"
+			if easteries[ id ].address then
+				answer = answer .. "Адрес: " .. easteries[ id ].address .. "\n"
+			end
+			if easteries[ id ].phone then
+				answer = answer .. "Телефон: " .. easteries[ id ].phone .. "\n"
+			end
+			if easteries[ id ].url then
+				answer = answer .. "URL: " .. easteries[ id ].url .. "\n"
+			end
+			bot.sendMessage( msg.chat.id, answer )
+			bot.sendVenue( msg.chat.id, tonumber( easteries[ id ].lan ), tonumber( easteries[ id ].lng ), easteries[ id ].name, "" )
+		else
+			answer = "Заведение с ID: " .. tostring( id ) .. " не найдено."
+			bot.sendMessage( msg.chat.id, answer )
+		end
+
 	-- Все остальные команды
 	else
 	end
 end
 
 extension.onCallbackQueryReceive = function( q )
-	print( inspect(q) )
 	local vote = q.data:gsub( "vote:" , "" )
-	print(inspect(vote))
 	vote = tonumber(vote)
+	local myVote = '?'
 	if vote == nil then vote = 0 end
 	if vote > 0 then
-		votes[ q.from.first_name ] = easteries [ vote ].name
+		votes[ q.from.first_name ] = easteries[ vote ].name
+		myVote = easteries [ vote ].emoji .. " " .. votes[ q.from.first_name ]
 	else
 		votes[ q.from.first_name ] = "Не пойду"
+		myVote = "😫 " .. votes[ q.from.first_name ]
 	end
-	bot.answerCallbackQuery( q.id, "Твой голос - \"" .. votes[ q.from.first_name ] .. "\", учтён!".. q.from.first_name, true)
-	bot.editMessageReplyMarkup( q.message.chat.id, q.message.message_id, nil, generatePoolButtons() )
 	save_votes()
+	bot.answerCallbackQuery( q.id, "Твой голос - \"" .. myVote .. "\", учтён, ".. q.from.first_name .. " !", true)
+	local topVoice = "Топчик: " .. top_name
+	bot.editMessageText( q.message.chat.id, q.message.message_id, nil, "Голосуем!\nВсего голосов: " .. tostring( voices ) .. "\n" .. topVoice .. "\n", "HTML", nil, generatePoolButtons() )
 end
 
 extension.run()

@@ -6,7 +6,8 @@
 	lng TEXT,
 	address TEXT,
 	url TEXT,
-	phone TEXT
+	phone TEXT,
+	emoji TEXT
 );
 
 CREATE TABLE default_easteries (
