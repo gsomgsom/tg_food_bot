@@ -4,6 +4,7 @@
 local tablex         = require( "pl.tablex" )
 local stringx        = require( "pl.stringx" )
 local inspect        = require( "inspect" )
+local JSON           = require( "JSON" )
 local cfg            = require( "config" )
 local bot, extension = require( "lua-bot-api" ).configure( cfg.token )
 local m              = require( "luasql.sqlite3" )
@@ -106,6 +107,9 @@ end
 
 -- обнуляет список сообщений о голосовании
 function clean_vote_messages()
+	for n, m in pairs( vote_messages ) do
+		bot.editMessageText( cfg.chat_id, m, nil, "Голосование завершено." )
+	end
 	vote_messages = {}
 	dbc:execute ( "TRUNCATE TABLE vote_messages" )
 	votes = {}
@@ -125,6 +129,39 @@ end
 load_easteries()
 load_shuffled()
 load_votes()
+
+function generatePoolButtons()
+	local variants = {}
+	local all_variants = {}
+	local i = 1
+	-- @TODO - переписать по-нормальному генерацию кнопок
+	for n = 0, num / 2 do
+		variants = {}
+		for m = 1, 2 do
+			if easteries_shuffled[ i ] and easteries [ easteries_shuffled[ i ] ] then
+				local cnt = 0
+				for who, what in pairs( votes ) do
+					if what == easteries [ easteries_shuffled[ i ] ].name then
+						cnt = cnt + 1
+					end
+				end
+				table.insert( variants, {
+					text = easteries [ easteries_shuffled[ i ] ].name .. " [ " .. tostring( cnt ) .. " ]",
+					callback_data = 'vote:' .. tostring( easteries_shuffled[ i ] ),
+				})
+			else
+				table.insert( variants, {
+					text = 'Не пойду',
+					callback_data = 'vote:0',
+				})
+			end
+			i = i + 1
+		end
+		table.insert(all_variants, variants )
+	end
+
+	return JSON:encode({inline_keyboard = all_variants})
+end
 
 -- Обработчик сообщений
 extension.onTextReceive = function (msg)
@@ -154,31 +191,7 @@ extension.onTextReceive = function (msg)
 	-- /vote buttons
 	elseif ( msg.text == "/vote" ) then
 		local answer = "Голосуем!\n\n"
-
--- @TODO - переписать по-нормальному
--- @TODO - после голосования отменять клавиатуру
-		local variants = {}
-		local all_variants = {}
-		local i = 1
-		for n = 0, num / 2 do
-			variants = {}
-			for m = 1, 2 do
---				if i == 0 then
---					table.insert(variants, default )
---				else
-					if easteries_shuffled[ i ] and easteries [ easteries_shuffled[ i ] ] then
-						table.insert(variants, easteries [ easteries_shuffled[ i ] ].name )
-					else
-						table.insert(variants, "Не пойду" )
-					end
---				end
-				i = i + 1
-			end
-			table.insert(all_variants, variants )
-		end
-
-		local result = bot.sendMessage( msg.chat.id, answer, nil, nil, nil, nil, bot.generateReplyKeyboardMarkup( all_variants, false, true ) )
-
+		local result = bot.sendMessage( msg.chat.id, answer, nil, nil, nil, nil, generatePoolButtons() )
 		if result.result and result.result.message_id then
 			table.insert( vote_messages, result.result.message_id )
 			dbc:execute ( "INSERT INTO vote_messages (message_id)  VALUES (" .. tostring( result.result.message_id ) .. ");" )
@@ -188,18 +201,6 @@ extension.onTextReceive = function (msg)
 	elseif ( msg.text == "/results" ) then
 		local top = {}
 		local voices = 0
-
---[[
-		votes = {
-			sdsd1 = "stolovka",
-			sdsd2 = "stolovka",
-			sdsd3 = "stolovka",
-			sdsd4 = "stolovka",
-			sdsd5 = "stolovka",
-			sdsd6 = "stolovka2",
-			sdsd7 = "stolovka2",
-		}
-]]--
 
 		for who, what in pairs( votes ) do
 			if top[ what ] == nil then
@@ -226,17 +227,23 @@ extension.onTextReceive = function (msg)
 
 	-- Все остальные команды
 	else
-		if msg.reply_to_message and msg.reply_to_message.message_id then
-			for n, m in pairs( vote_messages ) do
-				if m == msg.reply_to_message.message_id then
-					local answer = "Твой голос учтён, ".. msg.from.first_name .. "\n"
-					votes[ msg.from.first_name ] = msg.text
-					save_votes()
-					bot.sendMessage( msg.chat.id, answer )
-				end
-			end
-		end
 	end
+end
+
+extension.onCallbackQueryReceive = function( q )
+	print( inspect(q) )
+	local vote = q.data:gsub( "vote:" , "" )
+	print(inspect(vote))
+	vote = tonumber(vote)
+	if vote == nil then vote = 0 end
+	if vote > 0 then
+		votes[ q.from.first_name ] = easteries [ vote ].name
+	else
+		votes[ q.from.first_name ] = "Не пойду"
+	end
+	bot.answerCallbackQuery( q.id, "Твой голос - \"" .. votes[ q.from.first_name ] .. "\", учтён!".. q.from.first_name, true)
+	bot.editMessageReplyMarkup( q.message.chat.id, q.message.message_id, nil, generatePoolButtons() )
+	save_votes()
 end
 
 extension.run()

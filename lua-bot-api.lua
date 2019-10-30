@@ -798,9 +798,16 @@ M.answerCallbackQuery = answerCallbackQuery
 
 local function editMessageText(chat_id, message_id, inline_message_id, text, parse_mode, disable_web_page_preview, reply_markup)
 	
-  if not chat_id and not inline_message_id then return nil, "chat_id not specified" end
-  if not message_id and not inline_message_id then return nil, "message_id not specified" end
-  if not inline_message_id and not (chat_id and message_id) then return nil, "inline_message_id not specified" end
+  local allowed_parse_mode = {
+    ["Markdown"] = true,
+    ["HTML"] = true
+  }
+
+  if (not allowed_parse_mode[parse_mode]) then parse_mode = "" end
+
+  --if not chat_id and not inline_message_id then return nil, "chat_id not specified" end
+  --if not message_id and not inline_message_id then return nil, "message_id not specified" end
+  --if not inline_message_id and not (chat_id and message_id) then return nil, "inline_message_id not specified" end
   if not text then return nil, "text not specified" end
 
   local request_body = {}
@@ -826,10 +833,10 @@ M.editMessageText = editMessageText
 
 local function editMessageCaption(chat_id, message_id, inline_message_id, caption, reply_markup)
   
-  if not chat_id and not inline_message_id then return nil, "chat_id not specified" end
-  if not message_id and not inline_message_id then return nil, "message_id not specified" end
-  if not inline_message_id and not (chat_id and message_id) then return nil, "inline_message_id not specified" end
-  if not caption then return nil, "caption not specified" end
+  --if not chat_id and not inline_message_id then return nil, "chat_id not specified" end
+  --if not message_id and not inline_message_id then return nil, "message_id not specified" end
+  --if not inline_message_id and not (chat_id and message_id) then return nil, "inline_message_id not specified" end
+  --if not caption then return nil, "caption not specified" end
 
   local request_body = {}
 
@@ -852,9 +859,9 @@ M.editMessageCaption = editMessageCaption
 
 local function editMessageReplyMarkup(chat_id, message_id, inline_message_id, reply_markup)
   
-  if not chat_id and not inline_message_id then return nil, "chat_id not specified" end
-  if not message_id and not inline_message_id then return nil, "message_id not specified" end
-  if not inline_message_id and not (chat_id and message_id) then return nil, "inline_message_id not specified" end
+  --if not chat_id and not inline_message_id then return nil, "chat_id not specified" end
+  --if not message_id and not inline_message_id then return nil, "message_id not specified" end
+  --if not inline_message_id and not (chat_id and message_id) then return nil, "inline_message_id not specified" end
 
   local request_body = {}
 
